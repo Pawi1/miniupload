@@ -4,26 +4,63 @@ on:
   push:
     tags:
       - '[0-9][0-9].[0-9][0-9].[0-9]*'
+    branches:
+      - main
+    paths:
+      - '.github/workflows/release.yml'
 
 permissions:
   contents: write
 
 jobs:
+  get-version:
+    name: Resolve version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Resolve version
+        id: version
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            echo "version=${{ github.ref_name }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(git describe --tags --abbrev=0)" >> "$GITHUB_OUTPUT"
+          fi
+
   build:
-    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    name: Build (${{ matrix.name }})
+    needs: get-version
     runs-on: ubuntu-latest
     strategy:
       matrix:
         include:
-          - goos: linux
+          - name: linux-amd64
+            goos: linux
             goarch: amd64
-          - goos: linux
+          - name: linux-arm64
+            goos: linux
             goarch: arm64
-          - goos: darwin
+          - name: linux-amd64-musl
+            goos: linux
             goarch: amd64
-          - goos: darwin
+            cgo: "0"
+          - name: linux-arm64-musl
+            goos: linux
             goarch: arm64
-          - goos: windows
+            cgo: "0"
+          - name: darwin-amd64
+            goos: darwin
+            goarch: amd64
+          - name: darwin-arm64
+            goos: darwin
+            goarch: arm64
+          - name: windows-amd64
+            goos: windows
             goarch: amd64
 
     steps:
@@ -38,30 +75,31 @@ jobs:
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: ${{ matrix.cgo || '1' }}
         run: |
           EXT=""
           [ "$GOOS" = "windows" ] && EXT=".exe"
           go build \
-            -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
-            -o "miniupload-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}" \
+            -ldflags="-s -w -X main.version=${{ needs.get-version.outputs.version }}" \
+            -o "miniupload-${{ matrix.name }}${EXT}" \
             ./cmd/miniupload/
 
       - name: Checksum
         run: |
           EXT=""
           [ "${{ matrix.goos }}" = "windows" ] && EXT=".exe"
-          NAME="miniupload-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}"
+          NAME="miniupload-${{ matrix.name }}${EXT}"
           sha256sum "${NAME}" > "${NAME}.sha256"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.goos }}-${{ matrix.goarch }}
-          path: miniupload-${{ matrix.goos }}-${{ matrix.goarch }}*
+          name: ${{ matrix.name }}
+          path: miniupload-${{ matrix.name }}*
 
   release:
-    name: Create release
-    needs: build
+    name: Update release
+    needs: [get-version, build]
     runs-on: ubuntu-latest
 
     steps:
@@ -71,8 +109,9 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Create GitHub release
+      - name: Create or update GitHub release
         uses: softprops/action-gh-release@v2
         with:
+          tag_name: ${{ needs.get-version.outputs.version }}
           files: dist/*
           generate_release_notes: true
