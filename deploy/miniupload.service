@@ -1,0 +1,21 @@
+[Unit]
+Description=miniupload — private file drop
+After=network.target
+
+[Service]
+Type=simple
+User=miniupload
+Group=miniupload
+WorkingDirectory=/opt/miniupload
+EnvironmentFile=/opt/miniupload/.env
+ExecStart=/opt/miniupload/miniupload
+Restart=on-failure
+RestartSec=5s
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ReadWritePaths=/opt/miniupload/data
+
+[Install]
+WantedBy=multi-user.target

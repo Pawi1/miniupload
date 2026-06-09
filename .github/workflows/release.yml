@@ -1,0 +1,94 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: stable
+          cache: true
+
+      - name: Build
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          EXT=""
+          [ "$GOOS" = "windows" ] && EXT=".exe"
+          go build \
+            -ldflags="-s -w -X main.version=${{ github.ref_name }}" \
+            -o "miniupload-${{ matrix.goos }}-${{ matrix.goarch }}${EXT}" \
+            ./cmd/miniupload/
+
+      - name: Archive (tar.gz)
+        if: matrix.goos != 'windows'
+        run: |
+          NAME="miniupload-${{ matrix.goos }}-${{ matrix.goarch }}"
+          tar czf "${NAME}.tar.gz" \
+            "${NAME}" \
+            upload.sh \
+            .env.example \
+            deploy/miniupload.service \
+            deploy/miniupload.openrc
+          sha256sum "${NAME}.tar.gz" > "${NAME}.tar.gz.sha256"
+
+      - name: Archive (zip)
+        if: matrix.goos == 'windows'
+        run: |
+          NAME="miniupload-${{ matrix.goos }}-${{ matrix.goarch }}"
+          zip "${NAME}.zip" "${NAME}.exe" upload.sh .env.example
+          sha256sum "${NAME}.zip" > "${NAME}.zip.sha256"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.goos }}-${{ matrix.goarch }}
+          path: |
+            miniupload-*.tar.gz
+            miniupload-*.tar.gz.sha256
+            miniupload-*.zip
+            miniupload-*.zip.sha256
+
+  release:
+    name: Create release
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

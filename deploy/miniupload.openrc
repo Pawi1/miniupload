@@ -1,0 +1,26 @@
+#!/sbin/openrc-run
+
+name="miniupload"
+description="miniupload — private file drop"
+
+command="/opt/miniupload/miniupload"
+command_user="miniupload:miniupload"
+command_background=true
+pidfile="/run/${RC_SVCNAME}.pid"
+
+directory="/opt/miniupload"
+
+# Load variables from .env file
+if [ -f "/opt/miniupload/.env" ]; then
+    export $(grep -v '^#' /opt/miniupload/.env | xargs)
+fi
+
+depend() {
+    need net
+    after logger
+}
+
+start_pre() {
+    checkpath --directory --owner miniupload:miniupload --mode 0755 \
+        "${DATA_DIR:-/opt/miniupload/data}/files"
+}

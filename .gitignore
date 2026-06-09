@@ -1,0 +1,4 @@
+/miniupload
+data/
+.env
+*.sqlite
